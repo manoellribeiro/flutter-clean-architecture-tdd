@@ -1,3 +1,4 @@
+import 'package:clean_architecture_reso/core/error/exceptions.dart';
 import 'package:clean_architecture_reso/core/platform/network_info.dart';
 import 'package:clean_architecture_reso/features/number_trivia/data/datasources/number_trivia_local_data_source.dart';
 import 'package:clean_architecture_reso/features/number_trivia/data/datasources/number_trivia_remote_data_source.dart';
@@ -6,6 +7,9 @@ import 'package:clean_architecture_reso/core/error/failures.dart';
 import 'package:clean_architecture_reso/features/number_trivia/domain/repositories/number_trivia_repository.dart';
 import 'package:dartz/dartz.dart';
 import 'package:meta/meta.dart';
+
+typedef Future<NumberTrivia> _ConcreteOrRandomChooser();
+
 class NumberTriviaRepositoryImpl implements NumberTriviaRepository {
 
   final NumberTriviaRemoteDataSource remoteDataSource;
@@ -20,13 +24,39 @@ class NumberTriviaRepositoryImpl implements NumberTriviaRepository {
     });
 
   @override
-  Future<Either<Failure, NumberTrivia>> getConcreteNumberTrivia(int number) {
-  
+  Future<Either<Failure, NumberTrivia>> getConcreteNumberTrivia(int number) async {
+    return await _getTrivia(() {
+      return remoteDataSource.getConcreteNumberTrivia(number);
+    });
   }
 
   @override
-  Future<Either<Failure, NumberTrivia>> getRandomNumberTrivia() {
+  Future<Either<Failure, NumberTrivia>> getRandomNumberTrivia()  async {
+    return await _getTrivia(() {
+      return remoteDataSource.getRandomNumberTrivia();
+    });
+  }
 
+  Future<Either<Failure, NumberTrivia>> _getTrivia(
+    _ConcreteOrRandomChooser getConcreteOrRandom
+  ) async { 
+    if (await networkInfo.isConnected){
+      try {
+        
+        final remoteTrivia = await getConcreteOrRandom();
+        localDataSource.cacheNumberTrivia(remoteTrivia);
+        return Right(remoteTrivia);
+      } on ServerException {
+        return Left(ServerFailure());
+      } 
+    } else {
+      try {
+        final localTrivia = await localDataSource.getLastNumber(); 
+        return Right(localTrivia);  
+      } on CacheException {
+        return Left(CacheFailure());
+      }
+    }
   }
 
 }
